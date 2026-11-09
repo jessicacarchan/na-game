@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鈉元素化學對決 (Na-Clash)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Times+New+Roman&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+            overflow: hidden; /* 適合 PPT 16:9 螢幕單頁呈現 */
+        }
+
+        /* 化學式專用 Times New Roman 字型 */
+        .font-chem {
+            font-family: 'Times New Roman', Times, serif;
+            letter-spacing: 0.5px;
+        }
+
+        /* 自訂卡牌懸浮效果 */
+        .chem-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+            transition: all 0.15s ease-in-out;
+            white-space: nowrap; /* 強制不折行 */
+        }
+        .chem-card:hover:not(:disabled) {
+            transform: translateY(-2px);
+            border-color: #38bdf8;
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+        }
+
+        .eq-card-slot {
+            background: rgba(15, 23, 42, 0.7);
+            border: 2px dashed #334155;
+            min-height: 48px;
+            font-size: 1.15rem;
+        }
+
+        /* 氣泡與火焰特效 Canvas */
+        #fxCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* 下拉選單樣式 */
+        select.coeff-select {
+            background-color: #1e293b;
+            color: #fbbf24;
+            font-weight: bold;
+            font-family: 'Times New Roman', serif;
+            border: 1px solid #475569;
+            border-radius: 0.375rem;
+            padding: 2px 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col justify-between p-2 sm:p-4 select-none">
+
+    <canvas id="fxCanvas"></canvas>
+
+    <!-- 頂部標題與狀態欄 -->
+    <header class="flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-xl px-4 py-2 shrink-0">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-400 font-bold text-xl">
+                Na
+            </div>
+            <div>
+                <h1 class="text-base sm:text-lg font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-amber-300">
+                    鈉元素化學對決 <span class="text-xs font-normal text-slate-400">Na-Clash</span>
+                </h1>
+                <p id="modeBadge" class="text-[11px] text-slate-400">雙人同屏競速模式</p>
+            </div>
+        </div>
+
+        <!-- 全局計時器與對戰進度 -->
+        <div class="flex items-center space-x-6">
+            <div class="text-center">
+                <div class="text-[10px] text-slate-400">題目進度</div>
+                <div id="progressText" class="text-sm font-bold text-slate-200">1 / 6</div>
+            </div>
+            <div class="text-center bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
+                <div class="text-[10px] text-slate-400">單題限時</div>
+                <div id="timerDisplay" class="text-lg font-extrabold font-mono text-emerald-400">60s</div>
+            </div>
+            <button onclick="showMenu()" class="text-slate-400 hover:text-white px-2 py-1 rounded text-xs bg-slate-800 border border-slate-700">
+                <i class="fa-solid fa-house mr-1"></i>選單
+            </button>
+        </div>
+    </header>
+
+    <!-- 中央大字體統一題目欄 -->
+    <div class="my-1.5 bg-gradient-to-r from-cyan-950/80 via-slate-900 to-amber-950/80 p-3 rounded-xl border border-slate-700 shadow-md flex items-center justify-center text-center shrink-0">
+        <i class="fa-solid fa-flask text-amber-400 mr-3 text-lg shrink-0"></i>
+        <span id="qDescMain" class="font-extrabold text-base sm:text-lg text-amber-200 tracking-wide">載入題目中...</span>
+    </div>
+
+    <!-- 主遊戲對戰區 (左右分屏 16:9 適配) -->
+    <main id="gamePlayArea" class="flex-1 grid grid-cols-2 gap-3 my-1 min-h-0 relative">
+
+        <!-- 中央對戰解析彈窗 (平時隱藏，提交後顯示正確答案) -->
+        <div id="answerOverlay" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md z-40 rounded-xl flex flex-col items-center justify-center p-4 border border-cyan-500/30">
+            <div class="text-cyan-400 font-bold text-sm mb-1"><i class="fa-solid fa-circle-check mr-2"></i>標準方程式解析</div>
+            <div id="ansDesc" class="text-slate-300 text-xs sm:text-sm mb-3 text-center"></div>
+            <div id="ansEquation" class="text-2xl sm:text-3xl font-bold font-chem text-amber-300 bg-slate-900 px-6 py-3 rounded-xl border border-amber-500/30 tracking-wide">
+                <!-- 正確答案點評 -->
+            </div>
+            <div class="text-xs text-slate-400 mt-4 animate-pulse">3 秒後自動進入下一題...</div>
+        </div>
+
+        <!-- ==================== 玩家 1 區域 (左邊/藍色) ==================== -->
+        <section id="panelP1" class="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-3 flex flex-col justify-between relative overflow-hidden">
+            <!-- P1 標題與得分 -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2 shrink-0">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></div>
+                    <span id="labelP1" class="font-bold text-cyan-400 text-sm">玩家 1 (P1)</span>
+                </div>
+                <div class="text-right">
+                    <span class="text-xs text-slate-400">得分: </span>
+                    <span id="scoreP1" class="text-xl font-extrabold text-cyan-400 font-mono">0</span>
+                </div>
+            </div>
+
+            <!-- P1 化學方程式作答區 (動態生成) -->
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2 my-1 flex flex-col justify-center items-center flex-1 overflow-hidden">
+                <div class="text-[11px] text-slate-400 mb-1">請選擇化學卡牌與對應係數：</div>
+                <div id="workspaceP1" class="flex items-center justify-center space-x-1 w-full overflow-x-auto py-1">
+                    <!-- JS 動態生成槽位 -->
+                </div>
+            </div>
+
+            <!-- P1 控制與清空按鈕 -->
+            <div class="flex items-center justify-between my-1">
+                <button onclick="clearPlayerEquation('P1')" class="text-xs text-slate-400 hover:text-red-400 bg-slate-800/80 px-2.5 py-1 rounded border border-slate-700">
+                    <i class="fa-solid fa-rotate-left mr-1"></i>清空重新重組
+                </button>
+                <div id="statusP1" class="text-xs font-bold text-slate-400">未提交</div>
+            </div>
+
+            <!-- P1 專屬卡牌庫 (10張化合物) -->
+            <div class="bg-slate-950/50 border border-slate-800 rounded-lg p-2 shrink-0">
+                <div class="text-[11px] text-cyan-400 font-bold mb-1">
+                    <i class="fa-solid fa-layer-group mr-1"></i> <span id="poolLabelP1">P1 可選化學卡牌庫</span>
+                </div>
+                <div id="cardPoolP1" class="grid grid-cols-5 gap-1.5">
+                    <!-- JS 動態注入卡牌 -->
+                </div>
+            </div>
+
+            <!-- P1 提交按鈕 -->
+            <button id="btnSubmitP1" onclick="submitEquation('P1')" class="w-full mt-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-2 rounded-lg text-sm transition shadow-lg border border-cyan-400/30">
+                <i class="fa-solid fa-paper-plane mr-2"></i><span id="btnSubmitTextP1">提交 P1 方程式</span>
+            </button>
+        </section>
+
+
+        <!-- ==================== 玩家 2 區域 (右邊/橘色) ==================== -->
+        <section id="panelP2" class="bg-slate-900/60 border border-amber-500/30 rounded-xl p-3 flex flex-col justify-between relative overflow-hidden">
+            <!-- P2 標題與得分 -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2 shrink-0">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 rounded-full bg-amber-400 animate-ping"></div>
+                    <span id="labelP2" class="font-bold text-amber-400 text-sm">玩家 2 (P2)</span>
+                </div>
+                <div class="text-right">
+                    <span class="text-xs text-slate-400">得分: </span>
+                    <span id="scoreP2" class="text-xl font-extrabold text-amber-400 font-mono">0</span>
+                </div>
+            </div>
+
+            <!-- P2 化學方程式作答區 (動態生成) -->
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2 my-1 flex flex-col justify-center items-center flex-1 overflow-hidden">
+                <div class="text-[11px] text-slate-400 mb-1">請選擇化學卡牌與對應係數：</div>
+                <div id="workspaceP2" class="flex items-center justify-center space-x-1 w-full overflow-x-auto py-1">
+                    <!-- JS 動態生成槽位 -->
+                </div>
+            </div>
+
+            <!-- P2 控制與清空按鈕 -->
+            <div class="flex items-center justify-between my-1">
+                <button onclick="clearPlayerEquation('P2')" class="text-xs text-slate-400 hover:text-red-400 bg-slate-800/80 px-2.5 py-1 rounded border border-slate-700">
+                    <i class="fa-solid fa-rotate-left mr-1"></i>清空重新重組
+                </button>
+                <div id="statusP2" class="text-xs font-bold text-slate-400">未提交</div>
+            </div>
+
+            <!-- P2 專屬卡牌庫 (10張化合物) -->
+            <div class="bg-slate-950/50 border border-slate-800 rounded-lg p-2 shrink-0">
+                <div class="text-[11px] text-amber-400 font-bold mb-1">
+                    <i class="fa-solid fa-layer-group mr-1"></i> P2 可選化學卡牌庫
+                </div>
+                <div id="cardPoolP2" class="grid grid-cols-5 gap-1.5">
+                    <!-- JS 動態注入卡牌 -->
+                </div>
+            </div>
+
+            <!-- P2 提交按鈕 -->
+            <button id="btnSubmitP2" onclick="submitEquation('P2')" class="w-full mt-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold py-2 rounded-lg text-sm transition shadow-lg border border-amber-400/30">
+                <i class="fa-solid fa-paper-plane mr-2"></i><span id="btnSubmitTextP2">提交 P2 方程式</span>
+            </button>
+        </section>
+    </main>
+
+    <!-- 底部選單模式 Modal -->
+    <div id="menuModal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl text-center">
+            <div class="w-16 h-16 bg-gradient-to-tr from-cyan-500 to-amber-400 rounded-2xl mx-auto flex items-center justify-center text-slate-950 font-black text-3xl mb-4 shadow-lg">
+                Na
+            </div>
+            <h2 class="text-2xl font-black text-white mb-1">鈉元素化學對決</h2>
+            <p class="text-slate-400 text-xs mb-4">高一化學：鈉及其化合物重點反應競速對戰</p>
+
+            <!-- 玩家名字輸入表單 -->
+            <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800 mb-4 text-left space-y-2">
+                <div class="text-xs text-cyan-400 font-bold flex items-center">
+                    <i class="fa-solid fa-user-pen mr-1.5"></i>輸入對戰玩家名字：
+                </div>
+                <div>
+                    <label class="text-[11px] text-slate-400 block mb-1">玩家 1 (P1) 姓名：</label>
+                    <input type="text" id="inputNameP1" value="玩家 1" maxlength="8" placeholder="請輸入名字" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-cyan-300 font-bold focus:outline-none focus:border-cyan-400">
+                </div>
+                <div id="p2NameInputBox">
+                    <label class="text-[11px] text-slate-400 block mb-1">玩家 2 (P2) 姓名：</label>
+                    <input type="text" id="inputNameP2" value="玩家 2" maxlength="8" placeholder="請輸入名字" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-amber-300 font-bold focus:outline-none focus:border-amber-400">
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <button onclick="startGame('PVP')" class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-users text-lg"></i>
+                    <span>雙人同屏對戰 (P1 vs P2)</span>
+                </button>
+                <button onclick="startGame('PVE')" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl transition shadow-lg flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-robot text-lg"></i>
+                    <span>單人練習對抗 (VS AI 助手)</span>
+                </button>
+            </div>
+
+            <!-- AI 難度說明資訊 -->
+            <div class="mt-4 p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-left text-xs text-slate-400 space-y-1">
+                <div class="text-amber-400 font-bold flex items-center mb-1">
+                    <i class="fa-solid fa-circle-info mr-1.5"></i>AI 助手難度參數說明：
+                </div>
+                <div class="flex justify-between items-center">
+                    <span>• 答題準確率：</span>
+                    <span class="text-emerald-400 font-bold">85% 正確率</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span>• 思考與作答速度：</span>
+                    <span class="text-cyan-400 font-bold">10 ～ 20 秒隨機出牌</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最終戰報結算 Modal ( Times New Roman 大字體覆盤 ) -->
+    <div id="gameOverModal" class="hidden fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-3xl w-full shadow-2xl">
+            <div class="text-center mb-6">
+                <h2 class="text-3xl font-black text-amber-400 mb-1">🏆 對戰結果結算</h2>
+                <p id="winnerAnnounce" class="text-lg text-slate-200 font-bold"></p>
+            </div>
+
+            <!-- 分數比對卡片 -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-slate-950 p-4 rounded-xl border border-cyan-500/30 text-center">
+                    <div id="finalLabelP1" class="text-xs text-slate-400 mb-1">玩家 1 最終得分</div>
+                    <div id="finalScoreP1" class="text-3xl font-black text-cyan-400 font-mono">0</div>
+                </div>
+                <div class="bg-slate-950 p-4 rounded-xl border border-amber-500/30 text-center">
+                    <div id="finalLabelP2" class="text-xs text-slate-400 mb-1">玩家 2 最終得分</div>
+                    <div id="finalScoreP2" class="text-3xl font-black text-amber-400 font-mono">0</div>
+                </div>
+            </div>
+
+            <!-- 6 大鈉化學反應覆盤與知識點 (Times New Roman 大字) -->
+            <div class="mb-6">
+                <h3 class="text-sm font-bold text-slate-300 mb-3 flex items-center">
+                    <i class="fa-solid fa-book-bookmark text-amber-400 mr-2"></i>本課核心鈉化合物反應式覆盤（點評）
+                </h3>
+                <div class="space-y-2 max-h-60 overflow-y-auto pr-2">
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">1. 切開鈉變暗：</span>
+                        <span class="font-chem font-bold text-base sm:text-lg text-amber-300">4Na + O₂ = 2Na₂O</span>
+                    </div>
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">2. 鈉加熱燃燒：</span>
+                        <span class="font-chem font-bold text-base sm:text-lg text-amber-300 flex items-center">
+                            2Na + O₂ 
+                            <span class="inline-flex flex-col items-center mx-1.5 text-cyan-400 text-xs">
+                                <span>Δ</span>
+                                <span class="text-amber-300 text-base leading-none sm:text-lg">=</span>
+                            </span> 
+                            Na₂O₂
+                        </span>
+                    </div>
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">3. 鈉放入水中：</span>
+                        <span class="font-chem font-bold text-base sm:text-lg text-amber-300">2Na + 2H₂O = 2NaOH + H₂↑</span>
+                    </div>
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">4. 過氧化鈉加水：</span>
+                        <span class="font-chem font-bold text-base sm:text-lg text-amber-300">2Na₂O₂ + 2H₂O = 4NaOH + O₂↑</span>
+                    </div>
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">5. 過氧化鈉通二氧化碳：</span>
+                        <span class="font-chem font-bold text-base sm:text-lg text-amber-300">2Na₂O₂ + 2CO₂ = 2Na₂CO₃ + O₂</span>
+                    </div>
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">6. 碳酸氫鈉受熱分解：</span>
+                        <span class="font-chem font-bold text-base sm:text-lg text-amber-300 flex items-center">
+                            2NaHCO₃ 
+                            <span class="inline-flex flex-col items-center mx-1.5 text-cyan-400 text-xs">
+                                <span>Δ</span>
+                                <span class="text-amber-300 text-base leading-none sm:text-lg">=</span>
+                            </span> 
+                            Na₂CO₃ + H₂O + CO₂↑
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="showMenu()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl border border-slate-700 transition">
+                返回主選單
+            </button>
+        </div>
+    </div>
+
+
+    <!-- ==================== 遊戲核心 logic 腳本 ==================== -->
+    <script>
+        // 1. 文檔 6 大鈉化學反應題目庫
+        const SODIUM_QUESTIONS = [
+            {
+                id: 1,
+                desc: "切開的鈉表面很快會變暗，因為鈉很容易與氧氣反應",
+                reactants: [{ id: "Na", c: 4 }, { id: "O2", c: 1 }],
+                condition: "none",
+                products: [{ id: "Na2O", c: 2 }],
+                displayEq: '4Na + O₂ = 2Na₂O'
+            },
+            {
+                id: 2,
+                desc: "將鈉放在坩堝中加熱燃燒",
+                reactants: [{ id: "Na", c: 2 }, { id: "O2", c: 1 }],
+                condition: "heat",
+                products: [{ id: "Na2O2", c: 1 }],
+                displayEq: '2Na + O₂ <span class="inline-flex flex-col items-center mx-1.5 text-cyan-400 text-xs"><span>Δ</span><span class="text-amber-300 text-xl leading-none">=</span></span> Na₂O₂'
+            },
+            {
+                id: 3,
+                desc: "將鈉放入水中",
+                reactants: [{ id: "Na", c: 2 }, { id: "H2O", c: 2 }],
+                condition: "none",
+                products: [{ id: "NaOH", c: 2 }, { id: "H2", c: 1 }],
+                displayEq: '2Na + 2H₂O = 2NaOH + H₂↑'
+            },
+            {
+                id: 4,
+                desc: "將水加入到過氧化鈉中",
+                reactants: [{ id: "Na2O2", c: 2 }, { id: "H2O", c: 2 }],
+                condition: "none",
+                products: [{ id: "NaOH", c: 4 }, { id: "O2", c: 1 }],
+                displayEq: '2Na₂O₂ + 2H₂O = 4NaOH + O₂↑'
+            },
+            {
+                id: 5,
+                desc: "向過氧化鈉中通入二氧化碳",
+                reactants: [{ id: "Na2O2", c: 2 }, { id: "CO2", c: 2 }],
+                condition: "none",
+                products: [{ id: "Na2CO3", c: 2 }, { id: "O2", c: 1 }],
+                displayEq: '2Na₂O₂ + 2CO₂ = 2Na₂CO₃ + O₂'
+            },
+            {
+                id: 6,
+                desc: "碳酸氫鈉受熱分解",
+                reactants: [{ id: "NaHCO3", c: 2 }],
+                condition: "heat",
+                products: [{ id: "Na2CO3", c: 1 }, { id: "H2O", c: 1 }, { id: "CO2", c: 1 }],
+                displayEq: '2NaHCO₃ <span class="inline-flex flex-col items-center mx-1.5 text-cyan-400 text-xs"><span>Δ</span><span class="text-amber-300 text-xl leading-none">=</span></span> Na₂CO₃ + H₂O + CO₂↑'
+            }
+        ];
+
+        // 2. 化合物卡牌庫（已移除條件卡）
+        const ALL_CARDS = [
+            { id: "Na", label: "Na" },
+            { id: "O2", label: "O<sub>2</sub>" },
+            { id: "Na2O", label: "Na<sub>2</sub>O" },
+            { id: "Na2O2", label: "Na<sub>2</sub>O<sub>2</sub>" },
+            { id: "H2O", label: "H<sub>2</sub>O" },
+            { id: "NaOH", label: "NaOH" },
+            { id: "H2", label: "H<sub>2</sub>↑" },
+            { id: "CO2", label: "CO<sub>2</sub>" },
+            { id: "Na2CO3", label: "Na<sub>2</sub>CO<sub>3</sub>" },
+            { id: "NaHCO3", label: "NaHCO<sub>3</sub>" }
+        ];
+
+        // 狀態控制變數
+        let gameMode = 'PVP'; // PVP 或 PVE
+        let currentQuestionIdx = 0;
+        let timerInterval = null;
+        let timeLeft = 60;
+        let firstCorrectPlayer = null;
+
+        let nameP1 = "玩家 1";
+        let nameP2 = "玩家 2";
+
+        let p1Score = 0;
+        let p2Score = 0;
+
+        let stateP1 = { submitted: false, reactants: [], products: [] };
+        let stateP2 = { submitted: false, reactants: [], products: [] };
+
+        // Web Audio API 音效合成器
+        let audioCtx = null;
+
+        function playBeep(freq = 800, duration = 0.08, type = 'sine') {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                // 忽略不支援 Web Audio 的極少數瀏覽器
+            }
+        }
+
+        // 初始化畫布與畫面
+        window.onload = function() {
+            initCanvas();
+            renderCardPools();
+        };
+
+        function showMenu() {
+            stopTimer();
+            document.getElementById('menuModal').classList.remove('hidden');
+            document.getElementById('gameOverModal').classList.add('hidden');
+        }
+
+        function startGame(mode) {
+            gameMode = mode;
+            
+            // 讀取玩家輸入姓名
+            const in1 = document.getElementById('inputNameP1')?.value.trim();
+            const in2 = document.getElementById('inputNameP2')?.value.trim();
+            
+            nameP1 = in1 || "玩家 1";
+            nameP2 = (mode === 'PVE') ? "AI 機器人" : (in2 || "玩家 2");
+
+            if (document.getElementById('modeBadge')) document.getElementById('modeBadge').innerText = mode === 'PVP' ? `雙人同屏競速模式 (${nameP1} vs ${nameP2})` : `單人練習對抗 (${nameP1} VS AI)`;
+            if (document.getElementById('labelP1')) document.getElementById('labelP1').innerText = `${nameP1} (P1)`;
+            if (document.getElementById('labelP2')) document.getElementById('labelP2').innerText = `${nameP2} (${mode === 'PVP' ? 'P2' : 'AI'})`;
+            
+            if (document.getElementById('btnSubmitTextP1')) document.getElementById('btnSubmitTextP1').innerText = `提交 ${nameP1} 方程式`;
+            if (document.getElementById('btnSubmitTextP2')) document.getElementById('btnSubmitTextP2').innerText = `提交 ${nameP2} 方程式`;
+            
+            if (document.getElementById('poolLabelP1')) document.getElementById('poolLabelP1').innerText = `${nameP1} 可選化學卡牌庫`;
+            if (document.getElementById('poolLabelP2')) document.getElementById('poolLabelP2').innerText = `${nameP2} 可選化學卡牌庫`;
+
+            if (document.getElementById('finalLabelP1')) document.getElementById('finalLabelP1').innerText = `${nameP1} 最終得分`;
+            if (document.getElementById('finalLabelP2')) document.getElementById('finalLabelP2').innerText = `${nameP2} 最終得分`;
+
+            p1Score = 0;
+            p2Score = 0;
+            currentQuestionIdx = 0;
+            updateScores();
+
+            document.getElementById('menuModal').classList.add('hidden');
+            document.getElementById('gameOverModal').classList.add('hidden');
+
+            loadQuestion(currentQuestionIdx);
+        }
+
+        function loadQuestion(idx) {
+            if (idx >= SODIUM_QUESTIONS.length) {
+                endGame();
+                return;
+            }
+
+            const q = SODIUM_QUESTIONS[idx];
+            document.getElementById('progressText').innerText = `${idx + 1} / ${SODIUM_QUESTIONS.length}`;
+            document.getElementById('qDescMain').innerText = q.desc;
+
+            // 重置雙方狀態
+            firstCorrectPlayer = null;
+            stateP1 = { submitted: false, reactants: new Array(q.reactants.length).fill(null), products: new Array(q.products.length).fill(null) };
+            stateP2 = { submitted: false, reactants: new Array(q.reactants.length).fill(null), products: new Array(q.products.length).fill(null) };
+
+            document.getElementById('answerOverlay').classList.add('hidden');
+
+            renderWorkspaceSlots('P1', q);
+            renderWorkspaceSlots('P2', q);
+
+            setPlayerLock('P1', false);
+            setPlayerLock('P2', false);
+
+            startTimer();
+
+            // 若為 AI 模式，啟動 AI 模擬出牌
+            if (gameMode === 'PVE') {
+                simulateAISideBySide(q);
+            }
+        }
+
+        // 動態生成槽位 (精確對應題目反應物/生成物數量)
+        function renderWorkspaceSlots(player, q) {
+            const ws = document.getElementById(`workspace${player}`);
+            ws.innerHTML = '';
+
+            const isHeat = q.condition === 'heat';
+
+            // 反應物部分
+            q.reactants.forEach((_, rIdx) => {
+                if (rIdx > 0) {
+                    const plus = document.createElement('span');
+                    plus.className = 'font-bold text-slate-400 text-lg mx-1';
+                    plus.innerText = '+';
+                    ws.appendChild(plus);
+                }
+
+                // 係數選單
+                const sel = document.createElement('select');
+                sel.id = `${player}_r_coeff_${rIdx}`;
+                sel.className = 'coeff-select text-sm px-1 py-0.5';
+                [1, 2, 3, 4].forEach(val => {
+                    const opt = document.createElement('option');
+                    opt.value = val;
+                    opt.innerText = val === 1 ? '1' : val;
+                    sel.appendChild(opt);
+                });
+                ws.appendChild(sel);
+
+                // 卡牌槽位
+                const slot = document.createElement('div');
+                slot.id = `${player}_r_slot_${rIdx}`;
+                slot.className = 'eq-card-slot px-2 py-1 rounded-lg flex items-center justify-center font-chem font-bold text-cyan-300 min-w-[55px] sm:min-w-[65px] text-center border cursor-pointer hover:border-cyan-400 whitespace-nowrap';
+                slot.innerHTML = '<span class="text-[10px] sm:text-xs text-slate-600 font-sans">點選卡牌</span>';
+                slot.onclick = () => clearSlot(player, 'r', rIdx);
+                ws.appendChild(slot);
+            });
+
+            // 中間等號與條件 (等號正上方若有加熱顯示 Δ)
+            const eqContainer = document.createElement('div');
+            eqContainer.className = 'flex flex-col items-center justify-center mx-1 shrink-0';
+
+            if (isHeat) {
+                const heatLabel = document.createElement('span');
+                heatLabel.className = 'text-[10px] sm:text-xs text-cyan-400 font-bold mb-[-4px] animate-pulse';
+                heatLabel.innerText = 'Δ (加熱)';
+                eqContainer.appendChild(heatLabel);
+            }
+
+            const eqSign = document.createElement('span');
+            eqSign.className = 'font-bold text-amber-400 text-xl sm:text-2xl font-chem';
+            eqSign.innerText = '=';
+            eqContainer.appendChild(eqSign);
+
+            ws.appendChild(eqContainer);
+
+            // 生成物部分
+            q.products.forEach((_, pIdx) => {
+                if (pIdx > 0) {
+                    const plus = document.createElement('span');
+                    plus.className = 'font-bold text-slate-400 text-base sm:text-lg mx-0.5 shrink-0';
+                    plus.innerText = '+';
+                    ws.appendChild(plus);
+                }
+
+                // 係數選單
+                const sel = document.createElement('select');
+                sel.id = `${player}_p_coeff_${pIdx}`;
+                sel.className = 'coeff-select text-sm px-1 py-0.5';
+                [1, 2, 3, 4].forEach(val => {
+                    const opt = document.createElement('option');
+                    opt.value = val;
+                    opt.innerText = val === 1 ? '1' : val;
+                    sel.appendChild(opt);
+                });
+                ws.appendChild(sel);
+
+                // 卡牌槽位
+                const slot = document.createElement('div');
+                slot.id = `${player}_p_slot_${pIdx}`;
+                slot.className = 'eq-card-slot px-2 py-1 rounded-lg flex items-center justify-center font-chem font-bold text-amber-300 min-w-[55px] sm:min-w-[65px] text-center border cursor-pointer hover:border-amber-400 whitespace-nowrap';
+                slot.innerHTML = '<span class="text-[10px] sm:text-xs text-slate-600 font-sans">點選卡牌</span>';
+                slot.onclick = () => clearSlot(player, 'p', pIdx);
+                ws.appendChild(slot);
+            });
+        }
+
+        // 渲染專屬卡牌庫
+        function renderCardPools() {
+            const p1Pool = document.getElementById('cardPoolP1');
+            const p2Pool = document.getElementById('cardPoolP2');
+
+            let h1 = '', h2 = '';
+            ALL_CARDS.forEach(c => {
+                h1 += `<button onclick="onCardClicked('${c.id}', 'P1')" class="chem-card border border-slate-700 px-2 py-1.5 rounded-lg text-sm font-bold font-chem text-cyan-200 hover:scale-105 active:scale-95 transition shadow text-center">${c.label}</button>`;
+                h2 += `<button onclick="onCardClicked('${c.id}', 'P2')" class="chem-card border border-slate-700 px-2 py-1.5 rounded-lg text-sm font-bold font-chem text-amber-200 hover:scale-105 active:scale-95 transition shadow text-center">${c.label}</button>`;
+            });
+
+            if(p1Pool) p1Pool.innerHTML = h1;
+            if(p2Pool) p2Pool.innerHTML = h2;
+        }
+
+        // 點擊卡牌填入邏輯 (依序填滿空槽)
+        function onCardClicked(cardId, player) {
+            const st = (player === 'P1') ? stateP1 : stateP2;
+            if (st.submitted) return;
+
+            const card = ALL_CARDS.find(c => c.id === cardId);
+            if (!card) return;
+
+            // 先填反應物
+            for (let i = 0; i < st.reactants.length; i++) {
+                if (!st.reactants[i]) {
+                    st.reactants[i] = card;
+                    updateSlotUI(player, 'r', i, card.label);
+                    return;
+                }
+            }
+
+            // 再填生成物
+            for (let i = 0; i < st.products.length; i++) {
+                if (!st.products[i]) {
+                    st.products[i] = card;
+                    updateSlotUI(player, 'p', i, card.label);
+                    return;
+                }
+            }
+        }
+
+        function updateSlotUI(player, type, idx, label) {
+            const slot = document.getElementById(`${player}_${type}_slot_${idx}`);
+            if (slot) {
+                slot.innerHTML = label;
+                slot.classList.add('border-cyan-400', 'bg-slate-900');
+            }
+        }
+
+        function clearSlot(player, type, idx) {
+            const st = (player === 'P1') ? stateP1 : stateP2;
+            if (st.submitted) return;
+
+            if (type === 'r') st.reactants[idx] = null;
+            if (type === 'p') st.products[idx] = null;
+
+            const slot = document.getElementById(`${player}_${type}_slot_${idx}`);
+            if (slot) {
+                slot.innerHTML = '<span class="text-xs text-slate-600 font-sans">點選卡牌</span>';
+                slot.classList.remove('border-cyan-400', 'bg-slate-900');
+            }
+        }
+
+        function clearPlayerEquation(player) {
+            const q = SODIUM_QUESTIONS[currentQuestionIdx];
+            const st = (player === 'P1') ? stateP1 : stateP2;
+            if (st.submitted) return;
+
+            st.reactants = new Array(q.reactants.length).fill(null);
+            st.products = new Array(q.products.length).fill(null);
+
+            q.reactants.forEach((_, i) => clearSlot(player, 'r', i));
+            q.products.forEach((_, i) => clearSlot(player, 'p', i));
+        }
+
+        // 提交驗證與計分 logic
+        function submitEquation(player) {
+            const q = SODIUM_QUESTIONS[currentQuestionIdx];
+            const st = (player === 'P1') ? stateP1 : stateP2;
+            if (st.submitted) return;
+
+            st.submitted = true;
+            setPlayerLock(player, true);
+
+            // 取得提交資料
+            const userR = q.reactants.map((_, i) => {
+                const coeff = parseInt(document.getElementById(`${player}_r_coeff_${i}`).value);
+                return { id: st.reactants[i] ? st.reactants[i].id : '', c: coeff };
+            });
+
+            const userP = q.products.map((_, i) => {
+                const coeff = parseInt(document.getElementById(`${player}_p_coeff_${i}`).value);
+                return { id: st.products[i] ? st.products[i].id : '', c: coeff };
+            });
+
+            // 判斷化學式與係數對比
+            const isCorrect = validateChemistry(userR, userP, q);
+
+            const statusElem = document.getElementById(`status${player}`);
+
+            if (isCorrect) {
+                let scoreGained = 10; // 基礎分 10
+                const speedBonus = Math.floor(timeLeft / 6); // 速度加分 (最高 10)
+                scoreGained += speedBonus;
+
+                if (!firstCorrectPlayer) {
+                    firstCorrectPlayer = player;
+                    scoreGained += 5; // 率先答對 +5
+                }
+
+                if (player === 'P1') p1Score += scoreGained;
+                else p2Score += scoreGained;
+
+                updateScores();
+                statusElem.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> 正確! (+${scoreGained}分)</span>`;
+                triggerChemicalEffect(q.id);
+            } else {
+                statusElem.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-circle-xmark"></i> 答錯 (0分)</span>`;
+            }
+
+            checkRoundEnd();
+        }
+
+        // 化學對比演算法（忽略選填順序）
+        function validateChemistry(uR, uP, q) {
+            if (uR.some(r => !r.id) || uP.some(p => !p.id)) return false;
+
+            const checkMatch = (userList, targetList) => {
+                if (userList.length !== targetList.length) return false;
+                const targetCopy = [...targetList];
+                for (let u of userList) {
+                    const matchIdx = targetCopy.findIndex(t => t.id === u.id && t.c === u.c);
+                    if (matchIdx === -1) return false;
+                    targetCopy.splice(matchIdx, 1);
+                }
+                return targetCopy.length === 0;
+            };
+
+            return checkMatch(uR, q.reactants) && checkMatch(uP, q.products);
+        }
+
+        function setPlayerLock(player, lock) {
+            const btn = document.getElementById(`btnSubmit${player}`);
+            if (btn) btn.disabled = lock;
+            const panel = document.getElementById(`panel${player}`);
+            if (panel) {
+                if (lock) panel.classList.add('opacity-75');
+                else panel.classList.remove('opacity-75');
+            }
+        }
+
+        function updateScores() {
+            document.getElementById('scoreP1').innerText = p1Score;
+            document.getElementById('scoreP2').innerText = p2Score;
+        }
+
+        function checkRoundEnd() {
+            if (stateP1.submitted && stateP2.submitted) {
+                stopTimer();
+                showAnswerAnalysis();
+            }
+        }
+
+        function showAnswerAnalysis() {
+            const q = SODIUM_QUESTIONS[currentQuestionIdx];
+            document.getElementById('ansDesc').innerText = q.desc;
+            document.getElementById('ansEquation').innerHTML = q.displayEq;
+            document.getElementById('answerOverlay').classList.remove('hidden');
+
+            setTimeout(() => {
+                currentQuestionIdx++;
+                loadQuestion(currentQuestionIdx);
+            }, 3500);
+        }
+
+        // 計時器 logic
+        function startTimer() {
+            stopTimer();
+            timeLeft = 60;
+            updateTimerUI();
+
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerUI();
+
+                if (timeLeft <= 0) {
+                    stopTimer();
+                    // 時間到自動判定超時
+                    if (!stateP1.submitted) submitEquation('P1');
+                    if (!stateP2.submitted) submitEquation('P2');
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        function updateTimerUI() {
+            const tElem = document.getElementById('timerDisplay');
+            tElem.innerText = `${timeLeft}s`;
+            if (timeLeft <= 10) {
+                tElem.className = 'text-lg font-extrabold font-mono text-red-500 animate-pulse';
+                // 最後 10 秒發出倒數音效
+                if (timeLeft > 0) {
+                    playBeep(timeLeft <= 3 ? 1000 : 750, 0.1, 'sine');
+                } else if (timeLeft === 0) {
+                    playBeep(300, 0.35, 'sawtooth'); // 時間到低音長鳴
+                }
+            } else {
+                tElem.className = 'text-lg font-extrabold font-mono text-emerald-400';
+            }
+        }
+
+        // AI 智慧作答模擬 (單人模式)
+        function simulateAISideBySide(q) {
+            const delay = Math.floor(Math.random() * 10000) + 10000; // 10~20 秒出牌
+            setTimeout(() => {
+                if (stateP2.submitted || gameMode !== 'PVE') return;
+
+                // 85% 機率答對
+                const isCorrect = Math.random() < 0.85;
+
+                if (isCorrect) {
+                    q.reactants.forEach((r, i) => {
+                        stateP2.reactants[i] = ALL_CARDS.find(c => c.id === r.id);
+                        updateSlotUI('P2', 'r', i, stateP2.reactants[i].label);
+                        document.getElementById(`P2_r_coeff_${i}`).value = r.c;
+                    });
+                    q.products.forEach((p, i) => {
+                        stateP2.products[i] = ALL_CARDS.find(c => c.id === p.id);
+                        updateSlotUI('P2', 'p', i, stateP2.products[i].label);
+                        document.getElementById(`P2_p_coeff_${i}`).value = p.c;
+                    });
+                } else {
+                    // 隨機填寫
+                    q.reactants.forEach((_, i) => {
+                        stateP2.reactants[i] = ALL_CARDS[Math.floor(Math.random() * ALL_CARDS.length)];
+                        updateSlotUI('P2', 'r', i, stateP2.reactants[i].label);
+                    });
+                }
+
+                submitEquation('P2');
+            }, delay);
+        }
+
+        // 結束遊戲
+        function endGame() {
+            stopTimer();
+            document.getElementById('finalScoreP1').innerText = p1Score;
+            document.getElementById('finalScoreP2').innerText = p2Score;
+
+            let winnerText = '';
+            if (p1Score > p2Score) winnerText = `🎉 ${nameP1} 獲得最終勝利！`;
+            else if (p2Score > p1Score) winnerText = gameMode === 'PVP' ? `🎉 ${nameP2} 獲得最終勝利！` : `🤖 ${nameP2} 贏得了比賽！`;
+            else winnerText = '🤝 雙方旗鼓相當，平手！';
+
+            document.getElementById('winnerAnnounce').innerText = winnerText;
+            document.getElementById('gameOverModal').classList.remove('hidden');
+        }
+
+        // ================= 粒子特效動畫 Canvas =================
+        let ctx, canvas;
+        let particles = [];
+
+        function initCanvas() {
+            canvas = document.getElementById('fxCanvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            requestAnimationFrame(animLoop);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function triggerChemicalEffect(qId) {
+            const colors = ['#38bdf8', '#fbbf24', '#f43f5e', '#10b981'];
+            for (let i = 0; i < 50; i++) {
+                particles.push({
+                    x: canvas.width / 2,
+                    y: canvas.height / 2,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    size: Math.random() * 6 + 2,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    life: 1
+                });
+            }
+        }
+
+        function animLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach((p, idx) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+                ctx.globalAlpha = Math.max(0, p.life);
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (p.life <= 0) particles.splice(idx, 1);
+            });
+            requestAnimationFrame(animLoop);
+        }
+    </script>
+</body>
+</html>
